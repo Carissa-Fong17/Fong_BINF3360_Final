@@ -1,0 +1,247 @@
+---
+title: Differential Gene Expression Analysis Between Breast Cancer and Healthy Tissue
+  Samples
+author: "Carissa Fong"
+date: "2024-05-06"
+output:
+  pdf_document: default
+  html_document: default
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+# Introduction
+
+Gene expression regulation plays a significant role in determining an organism’s phenotype. Although allelic variations in protein-coding genes may initially appear to be the primary driving factor behind an organism’s phenotype, it is estimated that there are only about 20,000 genes in the human genome, comprising just 2% of its total size [1]. Of the remaining sequence that is not transcribed and translated into proteins, a significant – possibly majority – portion is involved in regulating the expression of such sequences; indeed, the ENCODE project estimates that over 80% of the total genome may be involved in some form of gene regulation [1]. As a result, studying these regulatory sections of the genome could lead to invaluable insights into the relationship between sequence and phenotype.  
+
+Today, one of the most common techniques used to quantitatively measure the expression level of genes is RNA-Seq. This technology is built upon next-generation sequencing (NGS) and involves the reverse transcription of RNA into complimentary DNA (cDNA), which is then sequences using NGS methods [2]. This method has several advantages over microarrays, which were the most common method used to quantify gene expression prior to RNA-Seq's introduction. For instance, RNA-Seq can achieve base-pair resolution and measure the entire range of expression levels in an organism’s transcriptome, while microarrays can typically only achieve 35-bp resolution and measure less than 2 orders of magnitude of expression levels [2]. Although RNA-Seq has some potential drawbacks, including a relatively high cost and requirement for extensive bioinformatic analysis, its benefits over previous methods outweigh these disadvantages.  
+
+RNA-Seq has enabled the production of an immense volume of gene expression data across several organisms, and researchers have been able to use this data to make novel discoveries about the relationship between gene expression and phenotype. For example, regulatory elements have been found to be involved in many diseases in humans, including cancer. One study sought to use RNA-Seq to distinguish distinct cancerous cells from healthy cells as well as identify traits of distinct cancer subtypes within tumors [3]. Using this technology, Chung et al. were able to determine that cancer cells within a single tumor share many common traits but are also highly heterogeneous. Their findings also pointed to various pathways affecting each subtype, showing that RNA-seq can help researchers to identify potential targets for cancer drugs. Another study aimed to use RNA-seq to better understand fusion genes and their role in cancer development [4]. Fusion genes occur as a result of chromosomal rearrangement, and they disrupt the functions of the genes involved; therefore, they have high potential to introduce harmful mutations. Using RNA-seq, Edgren et al. were able to uncover novel fusion genes implicated in breast cancer, furthering our knowledge about the role of these genes in cancer development. The findings of these studies demonstrate the ability of RNA-Seq to discover useful information that can both improve our understanding of cancer development and help physicians to provide more personalized care to cancer patients. 
+
+In response to the immense volume of RNA-Seq data currently being produced, researchers have developed tools to aid in its analysis. Many of these tools are directed at examining differential gene expression (DGE), which explores whether a particular gene’s expression level varies between conditions (for instance, disease and wild-type) [5]. The results can then be utilized in further downstream analysis by allowing researchers to focus only on genes with significantly different expression patterns across conditions. One computational tool used for DGE analyses is DESeq, which is available as a package in R [6]. The creators of DESeq were motivated by the drawbacks of previous methods for DE analysis – namely, the prevalence of type-I error and a non-data-driven parameter selection approach. To resolve these issues, a negative binomial distribution was used instead of a Poisson distribution and the mean and variance were determined based on the data. The DESeq method has three primary steps – calculating parameters (mean and variance), fitting the model, and testing for DE. After comparing the performance of DESeq with several other DE models, it was found that DESeq was able to effectively overcome their weaknesses [6].  
+
+The DESeq2 package in R has detailed documentation describing how it should be used [7]. Before a DESeq analysis can be run, input data must first be converted into a DESeqDataSet. One of the functions used to accomplish this (“DESeqDataSetFromMatrix”) takes three parameters as input – “countData,” “colData,” and “design.” The first parameter is an array of read counts, with every row representing a gene and every column representing the sample from which the gene counts were obtained. The second parameter contains information about each of the samples used in the first parameter, including the condition (e.g., healthy or disease) and the type of read (single-read or paired-end). The columns of the first parameter and the rows of the second must be listed in the same order to ensure that the DESeqDataSet is accurate. Finally, the last parameter is a design formula which contains the variables to use in the model; this formula should end with the variable of interest (e.g., condition). After the data set is created, it can be passed into the DESeq function to perform the analysis and the final DGE results can be obtained using the results function. Overall, using DESeq is relatively simple and easy to use, with formatting the input matrices being the most potentially labor-intensive step. As a result, it is widely accessible to many researchers, making it immensely useful for the analysis of large-scale data such as RNA-Seq. In combination, these two resources – RNA-Seq and DESeq – have immense potential to improve our understanding of cancer and the human genome. 
+
+In this study, I seek to identify genes that are differentially expressed in healthy and cancerous cells. Specifically, breast cancer was selected as the phenotype of interest for this analysis because it is well-studied and has a large amount of open-source data available. I conducted the differential expression analysis using the DESeq2 package in R [6].
+
+# Methods
+
+## Data Collection
+To conduct this analysis, gene expression data was obtained for both healthy tissues and breast cancer tumor samples. Data on the former was obtained from the Genotype-Tissue Expression (GTEx) Portal [8] and the latter from the Genetic Data Commons (GDC) Data Portal [9]. Data for two breast cancer types -- angiosarcoma (from the Angiosarcoma Project) and infiltrating duct carcinoma (from the Cancer Genome Atlas Breast Cancer dataset) -- were used. Seven samples were used from each group to ensure a balanced cohort, as the GDC Portal only provided seven open-access angiosarcoma data files.
+
+## Data Wrangling
+DESeq requires its `countData` dataframe to contain unnormalized transcript counts. Therefore, the `unstranded` column in the GDC data was used to obtain counts for the breast cancer expression data. The GTEx data only consisted of unnormalized counts, so it did not require any wrangling in this regard. In addition, the GDC data contained counts for several types of transcripts (e.g., protein coding, psuedogenes, lncRNA), but only those for protein-coding genes were kept to limit the size of the data. For all three data sets, the version numbers of the ensemble gene IDs were dropped to ensure that they could be correctly merged in later steps. However, this resulted in some repeated IDs, so all duplicate ID values were removed before the data were merged.
+
+To combine the three data sets into a single `countData` matrix, the `pandas` package in python was used [10]. The two GDC breast cancer data sets were added to the matrix using the following process. First, the files for one breast cancer type were combined into a single dataframe by merging the `unstranded` columns on the `gene_id` column. The columns corresponding to each file were labeled with the disease type followed by a number (e.g., `asc_0`, `idc_0`). Then, these dataframes were merged with the `countData` matrix, which would contain the count data for all three tissue sample categories. After this, the GTEx healthy tissue expression data was prepared by removing unnecessary columns (`Description` and all sample columns following the first seven). Then, the remaining columns were renamed to match the format of the rest of the data (e.g., `healthy_0`), and the matrix was merged with `countData`. Finally, rows containing any `NA` values were dropped from `countData`, as these corresponded to genes that were not present in all three data sets. A subset of `countData` is shown below.
+
+```{r echo=FALSE}
+counts <- read.csv(file = 'deseq_inputs/count_matrix.csv', sep = '\t', 
+                  row.names = 'gene_id')
+print(head(counts))
+```
+
+\break
+The `colData` matrix was created by using the column labels from `countData` as row labels, maintaining a consistent ordering between them to ensure that DESeq would work properly. Following this, the disease type of each sample was labeled as "asc" (angiosarcoma), "idc" (infiltrating duct carcinoma), or "healthy." This column was labeled `condition` so that it could be used in the DGE analysis. `colData` is shown below.
+
+```{r echo=FALSE}
+coldata <- read.csv(file = 'deseq_inputs/coldata.csv', sep = '\t', row.names = 1)
+print(coldata)
+```
+
+Using R, three separate `countData` matrices were created from these dataframes for each combination of conditions - angiosarcoma versus healthy tissue ("asc-healthy"), infiltrating duct carcinoma versus healthy tissue ("idc-healthy"), and angiosarcoma versus infiltrating duct carcinoma ("asc-idc").
+
+## Differential Gene Expression Analysis
+Once the `countData` and `colData` matrices were created, they were loaded into R (version 4.4) to be used in DESeq. A separate DESeq analysis was performed for every combination of conditions. For each model, the `design` parameter only included `condition`, as this was the only variable contained in `colData`. The genes with significant differential expression levels were selected to be those with an adjusted p-value of less than 0.01. These genes were written to files for use in the gene ontology analysis; separate files were created for each combination of conditions.
+
+## Gene Ontology
+A gene ontology (GO) analysis was conducted using g:Profiler [11]. Only GO entries for molecular function (MF) and biological process (BP) were included to focus on functions that indicate how the differentially expressed genes are involved in breast cancer. Regulatory motifs and human phenotype oncology were also excluded to reduce the amount of data returned by the analysis.
+
+```{r include=FALSE}
+# make count and coldata dtaframes for each combination of disease/healthy
+# angiosarcoma vs healthy
+healthy_asc_counts <- counts[c('asc_0', 'asc_1', 'asc_2', 'asc_3', 'asc_4',
+                               'asc_5', 'asc_6', 'healthy_0', 'healthy_1',
+                               'healthy_2', 'healthy_3', 'healthy_4', 
+                               'healthy_5', 'healthy_6')]
+healthy_asc_coldata <- data.frame('condition' = coldata[c(1:7, 15:21), 'condition'],
+                                  row.names = rownames(coldata)[c(1:7, 15:21)])
+
+
+# infiltrating duct carcinoma vs healthy
+healthy_idc_counts <- counts[c('idc_0', 'idc_1', 'idc_2', 'idc_3', 'idc_4',
+                               'idc_5', 'idc_6', 'healthy_0', 'healthy_1',
+                               'healthy_2', 'healthy_3', 'healthy_4', 
+                               'healthy_5', 'healthy_6')]
+healthy_idc_coldata <- data.frame('condition' = coldata[c(8:21), 'condition'],
+                                  row.names = rownames(coldata)[c(8:21)])
+
+# angiosarcoma vs infiltrating duct carcinoma
+asc_idc_counts <- counts[c('asc_0', 'asc_1', 'asc_2', 'asc_3', 'asc_4',
+                           'asc_5', 'asc_6', 'idc_0', 'idc_1', 'idc_2', 
+                           'idc_3', 'idc_4', 'idc_5', 'idc_6')]
+asc_idc_coldata <- data.frame('condition' = coldata[c(1:14), 'condition'],
+                              row.names = rownames(coldata)[c(1:14)])
+
+
+# make new dataframe to compare disease (asc and idc) vs healthy
+coldata2 <- data.frame(coldata)
+coldata2$condition[1:14] <- 'disease'
+
+# make condition columns in coldata factors
+healthy_asc_coldata$condition <- factor(healthy_asc_coldata$condition)
+healthy_idc_coldata$condition <- factor(healthy_idc_coldata$condition) 
+asc_idc_coldata$condition <- factor(asc_idc_coldata$condition)
+coldata2$condition = factor(coldata2$condition)
+
+
+library(DESeq2)
+
+```
+
+# Results
+## DESeq
+### Angiosarcoma vs. Healthy Tissue
+The ten genes with the most significant differential expression levels asc-healthy data are shown below. These genes have extremely small adjusted p-values, which indicates that it is highly likely that their expression levels differ between healthy cells and angiosarcoma cells.
+```{r asc_healthy, include=FALSE}
+# angiosarcoma vs healthy
+dds_healthy_asc <- DESeqDataSetFromMatrix(countData = healthy_asc_counts,
+                              colData = healthy_asc_coldata,
+                              design = ~ condition)
+dds_healthy_asc <- DESeq(dds_healthy_asc)
+resultsNames(dds_healthy_asc)
+res_asc_healthy <- results(dds_healthy_asc, name='condition_healthy_vs_asc')
+sum(res_asc_healthy$padj < 0.01, na.rm = T)
+sig_genes <- na.omit(rownames(res_asc_healthy)[res_asc_healthy$padj < 0.01])
+write.csv(noquote(sig_genes), 'res_asc_healthy.txt', row.names = F, quote = F)
+```
+```{r asc_healthy_output, echo=FALSE}
+print(res_asc_healthy[order(res_asc_healthy$padj)[1:10],])
+```
+
+### Infiltrating Duct Carcinoma vs. Healthy Tissue
+The ten genes with the most significant differential expression levels for idc-healthy data are shown below. Interestingly, the gene with ID ENSG00000131503 is highly significant in both the asc-healthy and and idc-healthy analyses. This implies that this gene may be involved in a cancer pathway that is shared between both types of breast cancer. However, the adjusted p-value for this gene in the infiltrating duct carcinoma analysis is 0, so its apparent significance may be erroneous. Further research is needed to determine this gene's role and how it may relate to cancer development.
+```{r idc_healthy, include=FALSE}
+# infiltrating duct carcinoma vs healthy
+dds_healthy_idc <- DESeqDataSetFromMatrix(countData = healthy_idc_counts,
+                                          colData = healthy_idc_coldata,
+                                          design = ~ condition)
+dds_healthy_idc <- DESeq(dds_healthy_idc)
+resultsNames(dds_healthy_idc)
+res_idc_healthy <- results(dds_healthy_idc, name='condition_idc_vs_healthy')
+sum(res_idc_healthy$padj < 0.01, na.rm = T)
+sig_genes <- na.omit(rownames(res_idc_healthy)[res_idc_healthy$padj < 0.01])
+write.csv(noquote(sig_genes), 'res_idc_healthy.txt', row.names = F, quote = F)
+```
+\break
+```{r idc_healthy_output, echo=FALSE}
+print(res_idc_healthy[order(res_idc_healthy$padj)[1:10],])
+```
+
+### Angiosarcoma vs. Infiltrating Duct Carcinoma
+The ten differentially expressed genes for the asc-idc data with the most significant p-values are shown below. These genes have very small adjusted p-values, but they are much larger than those of the two previous analyses. This is not surprising, however, given that both of the conditions being compared are breast cancer phenotypes and likely have greater similarity with each other than with healthy tissues. None of these genes were among the ten most significant in the previous analyses. However, comparing the functions of these genes can likely reveal information about how the two cancer types differ from one another.
+```{r asc_idc, include=FALSE}
+# angiosarcoma vs infiltrating duct carcinoma
+dds_asc_idc <- DESeqDataSetFromMatrix(countData = asc_idc_counts,
+                                      colData = asc_idc_coldata,
+                                      design = ~ condition)
+dds_asc_idc <- DESeq(dds_asc_idc)
+resultsNames(dds_asc_idc)
+res_asc_idc <- results(dds_asc_idc, name='condition_idc_vs_asc')
+sum(res_asc_idc$padj < 0.01, na.rm = T)
+sig_genes <- na.omit(rownames(res_asc_idc)[res_asc_idc$padj < 0.01])
+write.csv(noquote(sig_genes), 'res_asc_idc.txt', row.names = F, quote = F)
+```
+```{r asc_idc_output, echo=FALSE}
+print(res_asc_idc[order(res_asc_idc$padj)[1:10],])
+```
+
+## Gene Ontology
+### Angiosarcoma vs. Healthy Tissue
+The ten most significant molecular functions of the significant genes from the asc-healthy DESeq analysis are shown below. Most of these functions are related to molecular binding or some form of cellular activity. Therefore, it is possible that the most differentially-expressed genes between angiosarcoma and healthy samples are involved in the regulation of cellular functions; in turn, changes in the expression of these genes could lead to dysregulation of these functions, which may be involved in the development of angiosarcoma. 
+
+![](go_healthy_asc1.png)
+
+
+The ten biological processes most significantly associated with these asc-healthy genes support the hypothesis that they influence risk of developing angiosarcoma by affecting the regulation of cellular processes, as most involve some manner of regulation. In particular, they seem to be positive regulators. This suggests that they may influence cancer development by causing a process to occur too much (if they are over-expressed relative to healthy tissues) or too little (if they are under-expressed).
+
+![](go_healthy_asc2.png)
+
+
+The three biological pathway data sources provide further insight into the cellular processes these genes may affect through their over- or under-expression. The KEGG and REAC results suggest that these genes play a role in the cell cycle, cell division, and DNA repair. The dysregulation of any of these three functions could increase cancer risk by causing uncontrolled cell division or allowing mutated DNA to propagate. However, the p-values for these results are not as significant as the previous results, so they may not be reliable. 
+
+![](go_healthy_asc3-1.png)
+![](go_healthy_asc3-2.png)
+![](go_healthy_asc3-3.png)
+
+
+Finally, the ten tissues that are most significantly associated with the asc-healthy genes are shown below. Interestingly, breast tissue is not among these entries. This implies that the genes with the greatest difference in expression between angiosarcoma and healthy samples may not be normally expressed highly in breast tissue and that a change in their regulation resulted in their over-expression relative to healthy tissue. As such, it is possible that these genes play an important role in angiosarcoma development.
+
+![](go_healthy_asc4.png)
+
+### Infiltrating Duct Carcinoma vs. Healthy Tissue
+The most differentially expressed genes for the isc-healthy data are related to many of the same molecular functions as those returned by the previous analysis. However, the current genes are also associated with nucleotide binding. As such, they may be involved in the regulation of genetic processes such as DNA replication and repair. This suggests that improper regulation of such functions may contribute to one's risk of developing infiltrating duct carcinoma. 
+
+![](go_healthy_idc1.png)
+
+The biological processes associated with the idc-healthy genes are very similar to those from the asc-healthy analysis. Therefore, infiltrating duct carcinoma may also be caused by the dysregulation of certain biological and cellular processes.
+
+![](go_healthy_idc2.png)
+
+The KEGG results show that these genes, like the previous ones, are also involved in the cell cycle. However, the current genes are also related to protein processing and, therefore, could cause cancer by creating improperly-folded proteins. The REAC results are also similar to those of the previous genes, demonstrating the potential connection between these genes and the uncontrolled cell growth associated with cancer. Lastly, the WP results indicate that these genes are involved in DNA repair, which introduces another potential avenue through which they could affect cancer risk - the replication of damaged DNA.
+
+![](go_healthy_idc3-1.png)
+![](go_healthy_idc3-2.png)
+![](go_healthy_idc3-3.png)
+
+As with the previous analysis, the idc-healthy genes are not associated with breast tissue according to the Human Protein Atlas. Therefore, it appears that infiltrating duct carcinoma may involve the over-expression of genes that are not usually expressed in healthy breast tissue.
+
+![](go_healthy_idc4.png)
+
+
+### Angiosarcoma vs. Infiltrating Duct Carcinoma
+Protein binding is the molecular function most significantly associated with the differentially-expressed genes from the asc-idc data. Many of the remaining functions are the same as those from the other two analyses, but they are much less significant due to the fact that the two types of samples being compared are relatively similar. However, the fact that the genes with significant differential expression are related to these functions implies that the two breast cancer phenotypes are influenced by these genes in different ways. This, in turn, points to potential pathways of interest that researchers can study to better understand angiosarcoma and infiltrating duct carcinoma.
+
+![](go_asc_idc1.png)
+
+The biological processes associated with the asc-idc genes are largely the same as those present in the last two analyses, but they are again less significant due to the greater similarity between the two sample types.
+
+![](go_asc_idc2.png)
+
+Although the asc-idc genes are largely associated with the same functions and processes as the previous two analyses, the pathways in which they are involved are quite different. Many of these pathways are related to metabolism and mitochondrial functionality rather than the cell cycle. Additionally, the KEGG results show that these genes are involved in many illnesses other than breast cancer, including Alzheimer's disease and Huntington's disease. This variation from the past two analyses implies that angiocarcinoma and infiltrating duct carcinoma are caused by very different biological pathways despite the fact that they differ from healthy tissues in similar ways.
+
+![](go_asc_idc3.png)
+
+\break
+Similar to the previous analyses, the asc-idc genes are not predicted to be highly associated with breast tissue. Therefore, this further supports the hypothesis that these types of breast cancer may be caused by over-expression of genes not typically associated with breast tissue.
+
+![](go_asc_idc4.png)
+
+# Conclusions
+This study has yielded several interesting insights into the relationship between gene expression and breast cancer. Firstly, the DESeq results demonstrate that there are a large number of genes whose expression levels vary between not only healthy tissues and angiosarcoma or infiltrating duct carcinoma samples but also between the two cancer phenotypes, themselves. This suggests that many cancer phenotypes occur as a result of distinct biological pathways and, thus, require unique treatment approaches. This highlights the importance of precision medicine in treating cancer, as even relatively similar cancer types can have very different causes.
+
+Secondly, the gene ontology analysis through g:Profiler reveals that analyzing gene expression can allow researchers to obtain useful information about the relationship between various biological processes and an organism's phenotype. For example, studying the genes with the greatest variation in expression levels between healthy and disease samples enabled me to discover that angiosarcoma and infiltrating breast carcinoma may result in part from the overexpression of proteins that positively regulate the cell cycle. Therefore, although gene expression studies do not themselves provide information on the downstream effects of varying expression levels, they can help researchers to identify genes of interest on which to focus in further investigations. 
+
+# Works Cited
+[1] Dunham, Ian, et al. “An Integrated Encyclopedia of DNA Elements in the Human Genome.” Nature, vol. 489, no. 7414, Sept. 2012, pp. 57–74. www.nature.com, https://doi.org/10.1038/nature11247.
+
+[2] Wilhelm, Brian T., and Josette-Renée Landry. “RNA-Seq—Quantitative Measurement of Expression through Massively Parallel RNA-Sequencing.” Methods, vol. 48, no. 3, July 2009, pp. 249–57. ScienceDirect, https://doi.org/10.1016/j.ymeth.2009.03.016.
+
+[3] Chung, Woosung, et al. “Single-Cell RNA-Seq Enables Comprehensive Tumour and Immune Cell Profiling in Primary Breast Cancer.” Nature Communications, vol. 8, no. 1, May 2017, p. 15081. www-nature-com.ezproxy.baylor.edu, https://doi.org/10.1038/ncomms15081.
+
+[4] Edgren, Henrik, et al. “Identification of Fusion Genes in Breast Cancer by Paired-End RNA-Sequencing.” Genome Biology, vol. 12, no. 1, Jan. 2011, p. R6. Springer Link, https://doi.org/10.1186/gb-2011-12-1-r6.
+
+[5] Finotello, Francesca, and Barbara Di Camillo. “Measuring Differential Gene Expression with RNA-Seq: Challenges and Strategies for Data Analysis.” Briefings in Functional Genomics, vol. 14, no. 2, Mar. 2015, pp. 130–42. Silverchair, https://doi.org/10.1093/bfgp/elu035.
+
+[6] Anders, Simon, and Wolfgang Huber. “Differential Expression Analysis for Sequence Count Data.” Genome Biology, vol. 11, no. 10, Oct. 2010, p. R106. BioMed Central, https://doi.org/10.1186/gb-2010-11-10-r106.
+
+[7] “DESeq2.” Bioconductor, http://bioconductor.org/packages/DESeq2/. Accessed 5 May 2024.
+
+[8] The data used for the analyses described in this manuscript were obtained from the GTEx Portal on 05/04/24.
+
+[9] Grossman Robert L., et al. “Toward a Shared Vision for Cancer Genomic Data.” New England Journal of Medicine, vol. 375, no. 12, 2016, pp. 1109–12. Taylor and Francis+NEJM, https://doi.org/10.1056/NEJMp1607591.
+
+[10] McKinney, Wes. Data Structures for Statistical Computing in Python. 2010, pp. 56–61. DOI.org (Crossref), https://doi.org/10.25080/Majora-92bf1922-00a.
+
+[11] Kolberg, Liis, et al. “G:Profiler—Interoperable Web Service for Functional Enrichment Analysis and Gene Identifier Mapping (2023 Update).” Nucleic Acids Research, vol. 51, no. W1, July 2023, pp. W207–12. Silverchair, https://doi.org/10.1093/nar/gkad347.
